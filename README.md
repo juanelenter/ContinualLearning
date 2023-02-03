@@ -1,7 +1,3 @@
-<p align="center">
-  <img width="230" height="230" src="logo.png" alt="logo">
-</p>
-
 # Mammoth - An Extendible (General) Continual Learning Framework for Pytorch
 
 

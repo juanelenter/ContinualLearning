@@ -30,10 +30,8 @@ class cally(ContinualModel):
         super(cally, self).__init__(backbone, loss, args, transform)
         
         self.buffer = Buffer(self.args.buffer_size, self.device)
-        self.epsilon = 0.2
+        self.epsilon = 0.1
         self.lr_dual = 0.5
-        self.task = 0
-
 
     def begin_task(self, dataset):
 
@@ -44,22 +42,19 @@ class cally(ContinualModel):
         
         idxs_lambdas_descending = (-self.lambdas).argsort()
         samples_per_task = self.args.buffer_size // dataset.N_TASKS
+        num_outliers = 30
 
         imgs, targets = [], []
-        for i in idxs_lambdas_descending[:samples_per_task]:
+        for i in idxs_lambdas_descending[num_outliers:samples_per_task]:
 
             img, target, original_img, index = dataset.train_loader.dataset[i]
-            imgs.append(original_img.unsqueeze(0))
+            imgs.append(original_img)
             targets.append(target)
 
         self.buffer.add_data(
             examples=torch.cat(imgs),
-            labels=torch.Tensor(targets).unsqueeze(1),
+            labels=torch.Tensor(targets),
         )
-
-        wandb.log({ f"lambdas_task_{self.task}": self.lambdas, 
-            f"buf_lambdas_task_{self.task}": self.buf_lambdas
-                })
 
         self.task += 1
                 
@@ -84,17 +79,19 @@ class cally(ContinualModel):
             # Evaluate Lagrangian
             loss = self.loss(outputs, labels, reduction = 'none')
             buf_loss = self.loss(buf_outputs, buf_labels.squeeze(), reduction = 'none')
-            lagrangian = torch.mean(loss*(lambdas+1)-lambdas*self.epsilon) + torch.mean(buf_lambdas*(buf_loss - self.epsilon))
-
+            lagrangian = torch.mean(lambdas*(loss-self.epsilon)) + torch.mean(buf_lambdas*(buf_loss - self.epsilon))
+            
             # Primal Update
             lagrangian.backward()
             self.opt.step()
 
             # Dual Update
             lambdas += self.lr_dual*(loss - self.epsilon)
-            lambdas[lambdas < 0] = 0
+            lambdas = torch.nn.ReLU()(lambdas)
             self.lambdas[indexes] = lambdas.detach()
+
             buf_lambdas += self.lr_dual*(buf_loss - self.epsilon)
+            buf_lambdas = torch.nn.ReLU()(buf_lambdas)
             self.buf_lambdas[buf_indexes] = buf_lambdas.detach()
 
         else:
@@ -104,7 +101,7 @@ class cally(ContinualModel):
             
             # Evaluate Lagrangian
             loss = self.loss(outputs, labels, reduction = 'none')
-            lagrangian = torch.mean(loss*(lambdas+1)-lambdas*self.epsilon)
+            lagrangian = torch.mean(lambdas*(loss - self.epsilon))
 
             # Primal Update
             lagrangian.backward()
@@ -112,7 +109,7 @@ class cally(ContinualModel):
 
             # Dual Update
             lambdas += self.lr_dual*(loss - self.epsilon)
-            lambdas[lambdas < 0] = 0
+            lambdas = torch.nn.ReLU()(lambdas)
             self.lambdas[indexes] = lambdas.detach()
 
-        return torch.mean(loss).item()
+        return lagrangian.item()
