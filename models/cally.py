@@ -32,29 +32,96 @@ class cally(ContinualModel):
         self.buffer = Buffer(self.args.buffer_size, self.device)
         self.epsilon = 0.1
         self.lr_dual = 0.5
+        self.task = 0
 
     def begin_task(self, dataset):
 
-        self.lambdas = torch.zeros(len(dataset.train_loader.dataset), requires_grad=False, device = self.device)
-        self.buf_lambdas = torch.zeros(self.args.buffer_size, requires_grad=False, device = self.device)
+        self.lambdas = torch.ones(len(dataset.train_loader.dataset), requires_grad=False, device = self.device)
+        self.buf_lambdas = torch.ones(self.args.buffer_size, requires_grad=False, device = self.device)
 
     def end_task(self, dataset):
         
         idxs_lambdas_descending = (-self.lambdas).argsort()
-        samples_per_task = self.args.buffer_size // dataset.N_TASKS
+        samples_per_task = self.args.buffer_size // dataset.N_TASKS # e.g: 200 with bufsize = 1000
+        samples_per_class = self.args.buffer_size // (2*(self.task+1)) # e.g: 100
         num_outliers = 30
 
-        imgs, targets = [], []
-        for i in idxs_lambdas_descending[num_outliers:samples_per_task]:
 
-            img, target, original_img, index = dataset.train_loader.dataset[i]
-            imgs.append(original_img)
-            targets.append(target)
 
-        self.buffer.add_data(
-            examples=torch.cat(imgs),
-            labels=torch.Tensor(targets),
-        )
+        if self.buffer.is_empty():
+
+            assert self.buffer.buffer_size + num_outliers < len(idxs_lambdas_descending) , "Tried to add duplicates to buffer."
+
+            imgs, targets = [], []
+            
+
+            space_per_class = np.zeros(dataset.N_CLASSES_PER_TASK*dataset.N_TASKS) 
+            space_per_class[:dataset.N_CLASSES_PER_TASK] += samples_per_class
+
+            for i in idxs_lambdas_descending[num_outliers:]:
+                img, target, original_img, index = dataset.train_loader.dataset[i]
+                if space_per_class[target] > 0:
+                    imgs.append(original_img)
+                    targets.append(target)
+                    space_per_class[target] -= 1
+                if np.sum(space_per_class) == 0:
+                    break 
+            
+            self.buffer.add_data(
+                examples=torch.cat(imgs),
+                labels=torch.Tensor(targets),
+            )
+        
+        else:
+
+            # Get all buffer
+            all_data = self.buffer.get_all_data(transform = dataset.TRANSFORM)
+
+            # Empty old buffer to replace with new one
+            self.buffer.empty()
+
+            # Get samples from new task
+            imgs, targets = [], []
+            
+            space_per_class = np.zeros(dataset.N_CLASSES_PER_TASK*dataset.N_TASKS) 
+            space_per_class[self.task*dataset.N_CLASSES_PER_TASK:self.task*dataset.N_CLASSES_PER_TASK+dataset.N_CLASSES_PER_TASK] += samples_per_class
+
+            for i in idxs_lambdas_descending[num_outliers:]:
+                img, target, original_img, index = dataset.train_loader.dataset[i]
+                if space_per_class[target] > 0:
+                    imgs.append(original_img)
+                    targets.append(target)
+                    space_per_class[target] -= 1
+                if np.sum(space_per_class) == 0:
+                    break     
+
+            self.buffer.add_data(
+                examples=torch.cat(imgs),
+                labels=torch.Tensor(targets),
+            )
+
+            # Get samples from buffer randomly but uniformly
+            examples, labels = all_data
+            random_idxs = np.arange(len(labels))
+            np.random.shuffle(random_idxs)
+            
+            imgs, targets = [], []
+
+            space_per_class = np.zeros(dataset.N_CLASSES_PER_TASK*dataset.N_TASKS) 
+            space_per_class[:self.task*dataset.N_CLASSES_PER_TASK] += samples_per_class
+
+            for i in random_idxs:
+                if space_per_class[labels[i]] > 0:
+                    imgs.append(examples[i].unsqueeze(0))
+                    targets.append(labels[i])
+                    space_per_class[labels[i]] -= 1
+                if np.sum(space_per_class) == 0:
+                    break     
+
+            self.buffer.add_data(
+                examples=torch.cat(imgs),
+                labels=torch.Tensor(targets),
+            )
 
         self.task += 1
                 
@@ -80,7 +147,7 @@ class cally(ContinualModel):
             loss = self.loss(outputs, labels, reduction = 'none')
             buf_loss = self.loss(buf_outputs, buf_labels.squeeze(), reduction = 'none')
             lagrangian = torch.mean(lambdas*(loss-self.epsilon)) + torch.mean(buf_lambdas*(buf_loss - self.epsilon))
-            
+                        
             # Primal Update
             lagrangian.backward()
             self.opt.step()

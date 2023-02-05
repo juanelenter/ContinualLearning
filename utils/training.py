@@ -168,8 +168,6 @@ def train(model: ContinualModel, dataset: ContinualDataset,
 
             wandb.log(d2)
 
-
-    print(f"args.ignore_other_metrics {args.ignore_other_metrics}")
     if not args.disable_log and not args.ignore_other_metrics:
         logger.add_bwt(results, results_mask_classes)
         logger.add_forgetting(results, results_mask_classes)
