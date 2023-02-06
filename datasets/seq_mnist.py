@@ -52,7 +52,6 @@ class MyMNIST(MNIST):
 
         return img, target, original_img, index
 
-
 class SequentialMNIST(ContinualDataset):
 
     NAME = 'seq-mnist'

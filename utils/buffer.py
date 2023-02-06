@@ -150,6 +150,8 @@ class Buffer:
                 if task_labels is not None:
                     self.task_labels[index] = task_labels[i].to(self.device)
 
+    
+    
     def get_data(self, size: int, transform: nn.Module = None, return_index=False) -> Tuple:
         """
         Random samples a batch of size items.

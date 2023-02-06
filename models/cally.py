@@ -6,6 +6,7 @@
 import torch
 import numpy as np
 from models.utils.continual_model import ContinualModel
+import torchvision.transforms as transforms
 from utils.args import add_management_args, add_experiment_args, add_rehearsal_args, ArgumentParser
 from utils.buffer import Buffer
 import wandb
@@ -47,13 +48,11 @@ class cally(ContinualModel):
         num_outliers = 30
 
 
-
         if self.buffer.is_empty():
 
             assert self.buffer.buffer_size + num_outliers < len(idxs_lambdas_descending) , "Tried to add duplicates to buffer."
 
             imgs, targets = [], []
-            
 
             space_per_class = np.zeros(dataset.N_CLASSES_PER_TASK*dataset.N_TASKS) 
             space_per_class[:dataset.N_CLASSES_PER_TASK] += samples_per_class
@@ -61,7 +60,7 @@ class cally(ContinualModel):
             for i in idxs_lambdas_descending[num_outliers:]:
                 img, target, original_img, index = dataset.train_loader.dataset[i]
                 if space_per_class[target] > 0:
-                    imgs.append(original_img)
+                    imgs.append(original_img.unsqueeze(0))
                     targets.append(target)
                     space_per_class[target] -= 1
                 if np.sum(space_per_class) == 0:
@@ -75,7 +74,7 @@ class cally(ContinualModel):
         else:
 
             # Get all buffer
-            all_data = self.buffer.get_all_data(transform = dataset.TRANSFORM)
+            all_data = self.buffer.get_all_data(transform = None)
 
             # Empty old buffer to replace with new one
             self.buffer.empty()
@@ -89,7 +88,7 @@ class cally(ContinualModel):
             for i in idxs_lambdas_descending[num_outliers:]:
                 img, target, original_img, index = dataset.train_loader.dataset[i]
                 if space_per_class[target] > 0:
-                    imgs.append(original_img)
+                    imgs.append(original_img.unsqueeze(0))
                     targets.append(target)
                     space_per_class[target] -= 1
                 if np.sum(space_per_class) == 0:
