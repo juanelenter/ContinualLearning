@@ -13,8 +13,7 @@ import wandb
 
 
 def get_parser() -> ArgumentParser:
-    parser = ArgumentParser(description='Continual learning via'
-                                        ' Experience Replay.')
+    parser = ArgumentParser(description='Continual learning via Lagrangian Duality')
     add_management_args(parser)
     add_experiment_args(parser)
     add_rehearsal_args(parser)
@@ -45,7 +44,7 @@ class cally(ContinualModel):
         idxs_lambdas_descending = (-self.lambdas).argsort()
         samples_per_task = self.args.buffer_size // dataset.N_TASKS # e.g: 200 with bufsize = 1000
         samples_per_class = self.args.buffer_size // (2*(self.task+1)) # e.g: 100
-        num_outliers = 30
+        num_outliers = 100
 
 
         if self.buffer.is_empty():
@@ -122,6 +121,7 @@ class cally(ContinualModel):
                 labels=torch.Tensor(targets),
             )
 
+        self.buffer.create_loader(size = self.args.minibatch_size, model_transform = self.transform)
         self.task += 1
                 
     def observe(self, inputs, labels, not_aug_inputs, indexes):
@@ -133,8 +133,9 @@ class cally(ContinualModel):
         
         if not self.buffer.is_empty():
 
-            buf_indexes, buf_inputs, buf_labels = self.buffer.get_data(
-                self.args.minibatch_size, transform=self.transform, return_index=True)
+            #buf_indexes, buf_inputs, buf_labels = self.buffer.get_data(
+            #    self.args.minibatch_size, transform=self.transform, return_index=True)
+            buf_indexes, buf_inputs, buf_labels = self.buffer.get_data_from_loader(size = self.args.minibatch_size)
             
             buf_lambdas = self.buf_lambdas[buf_indexes]
 

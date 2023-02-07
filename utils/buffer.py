@@ -4,11 +4,13 @@
 # LICENSE file in the root directory of this source tree.
 
 from copy import deepcopy
+from re import X
 from typing import Tuple
 
 import numpy as np
 import torch
 import torch.nn as nn
+from torch.utils.data import DataLoader, Dataset
 
 
 def icarl_replay(self, dataset, val_set_split=0):
@@ -150,7 +152,18 @@ class Buffer:
                 if task_labels is not None:
                     self.task_labels[index] = task_labels[i].to(self.device)
 
-    
+    def create_loader(self, size, model_transform):
+        X, y = self.get_all_data(transform = model_transform)
+        self.buf_set = BufDataset(X, y)
+        self.buf_loader = iter(DataLoader(self.buf_set, batch_size=size, shuffle=True))
+
+    def get_data_from_loader(self, size):
+        try:
+            batch = next(self.buf_loader)
+        except StopIteration:
+            self.buf_loader = iter(DataLoader(self.buf_set, batch_size=size, shuffle=True))
+            batch = next(self.buf_loader)
+        return batch
     
     def get_data(self, size: int, transform: nn.Module = None, return_index=False) -> Tuple:
         """
@@ -228,3 +241,13 @@ class Buffer:
                 delattr(self, attr_str)
         self.num_seen_examples = 0
 
+class BufDataset(Dataset):
+    def __init__(self, X, y):
+        self.X = X
+        self.y = y
+
+    def __len__(self):
+        return len(self.y)
+
+    def __getitem__(self, idx):
+        return idx, self.X[idx], self.y[idx]
